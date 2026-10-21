@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import BudgetEditor from "@/components/BudgetEditor";
 import CategoryManager from "@/components/CategoryManager";
 import {
   DEFAULT_CATEGORIES,
@@ -19,6 +20,8 @@ type Expense = {
   category_id: string;
   created_at: string;
 };
+
+type Panel = "budgets" | "categories";
 
 const CATEGORY_COLUMNS = "id, name, emoji, budget, position";
 const EXPENSE_COLUMNS = "id, description, amount, category_id, created_at";
@@ -40,10 +43,21 @@ export default function BudgetDashboard() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("0");
   const [saving, setSaving] = useState(false);
-  const [managing, setManaging] = useState(false);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
+
+  // One panel at a time; tapping the open panel's button again closes it.
+  function togglePanel(next: Panel) {
+    setNotice(null);
+    setPanel((current) => (current === next ? null : next));
+  }
+
+  function handlePanelSaved(message: string) {
+    setPanel(null);
+    showNotice(message);
+  }
 
   function showNotice(message: string) {
     setNotice(message);
@@ -182,31 +196,49 @@ export default function BudgetDashboard() {
           <h1>Your budget</h1>
           <p className="muted">{monthName}</p>
         </div>
-        {!managing && !loading && (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              setNotice(null);
-              setManaging(true);
-            }}
-          >
-            ✏️ Edit categories
-          </button>
-        )}
       </div>
 
-      {managing && (
+      {!loading && (
+        <div className="panel-buttons">
+          <button
+            type="button"
+            className={`btn panel-btn ${panel === "budgets" ? "active" : ""}`}
+            aria-expanded={panel === "budgets"}
+            aria-controls="budget-editor"
+            onClick={() => togglePanel("budgets")}
+          >
+            <span aria-hidden="true">💶</span> Edit budgets
+          </button>
+          <button
+            type="button"
+            className={`btn panel-btn ${panel === "categories" ? "active" : ""}`}
+            aria-expanded={panel === "categories"}
+            aria-controls="category-manager"
+            onClick={() => togglePanel("categories")}
+          >
+            <span aria-hidden="true">🗂️</span> Manage categories
+          </button>
+        </div>
+      )}
+
+      {panel === "budgets" && (
+        <BudgetEditor
+          supabase={supabase}
+          categories={categories}
+          onCategoriesChange={setCategories}
+          onSaved={handlePanelSaved}
+          onClose={() => setPanel(null)}
+        />
+      )}
+
+      {panel === "categories" && (
         <CategoryManager
           supabase={supabase}
           categories={categories}
           onCategoriesChange={setCategories}
           onDeleteCategory={handleDeleteCategory}
-          onSaved={() => {
-            setManaging(false);
-            showNotice("Changes saved");
-          }}
-          onClose={() => setManaging(false)}
+          onSaved={handlePanelSaved}
+          onClose={() => setPanel(null)}
         />
       )}
 

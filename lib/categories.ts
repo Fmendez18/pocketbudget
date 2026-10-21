@@ -13,14 +13,15 @@ export const DEFAULT_CATEGORIES = [
   { name: "Hobbies & other", emoji: "🎸", budget: 100 },
 ];
 
-// Where an expense goes when no category is selected.
+// Where an expense goes when no category is selected. If the user renamed or deleted it,
+// the first remaining category is used instead, so a description alone can always be saved.
 export const FALLBACK_CATEGORY_NAME = "Hobbies & other";
 
 export const MAX_CATEGORIES = 12;
 
 export function defaultCategoryId(categories: Category[]): string | null {
   const preferred = categories.find((c) => c.name === FALLBACK_CATEGORY_NAME);
-  return preferred?.id ?? categories[categories.length - 1]?.id ?? null;
+  return preferred?.id ?? categories[0]?.id ?? null;
 }
 
 // Keyword -> emoji + colour hue. Accents are ignored ("café" == "cafe"). Keywords of 4+ letters

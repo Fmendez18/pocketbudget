@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MAX_CATEGORIES, matchEmoji, parseAmount, suggestEmoji, type Category } from "@/lib/categories";
+import { MAX_CATEGORIES, matchEmoji, suggestEmoji, type Category } from "@/lib/categories";
 
 // emojiTouched: the user picked this emoji by hand, so renaming must not overwrite it.
-type Draft = { name: string; emoji: string; budget: string; emojiTouched?: boolean };
+type Draft = { name: string; emoji: string; emojiTouched?: boolean };
 
 const CATEGORY_COLUMNS = "id, name, emoji, budget, position";
 
@@ -26,18 +26,18 @@ export default function CategoryManager({
   categories: Category[];
   onCategoriesChange: (next: Category[]) => void;
   onDeleteCategory: (category: Category) => Promise<void>;
-  onSaved: () => void;
+  onSaved: (message: string) => void;
   onClose: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, { name: c.name, emoji: c.emoji, budget: String(c.budget) }]))
+    Object.fromEntries(categories.map((c) => [c.id, { name: c.name, emoji: c.emoji }]))
   );
   const [newName, setNewName] = useState("");
   const [newEmoji, setNewEmoji] = useState("");
   const [newEmojiTouched, setNewEmojiTouched] = useState(false);
-  const [newBudget, setNewBudget] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
 
   // Until the user picks an emoji themselves, keep suggesting one from the name.
   const shownNewEmoji = newEmojiTouched ? newEmoji : newName.trim() ? suggestEmoji(newName) : "";
@@ -58,17 +58,16 @@ export default function CategoryManager({
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setHint(null);
 
-    const changed: { id: string; name: string; emoji: string; budget: number }[] = [];
+    const changed: { id: string; name: string; emoji: string }[] = [];
     for (const c of categories) {
       const d = drafts[c.id];
       if (!d) continue;
       const name = d.name.trim();
       const emoji = d.emoji.trim() || suggestEmoji(name);
-      const budget = parseAmount(d.budget);
       if (!name) return setError("Every category needs a name.");
-      if (budget === null) return setError(`The budget for “${name}” must be a positive number.`);
-      if (name !== c.name || emoji !== c.emoji || budget !== c.budget) changed.push({ id: c.id, name, emoji, budget });
+      if (name !== c.name || emoji !== c.emoji) changed.push({ id: c.id, name, emoji });
     }
     // A filled-in new-category row is saved too, so it isn't lost if the user never clicked "+ Add".
     let newCategory: Omit<Category, "id"> | null = null;
@@ -90,25 +89,24 @@ export default function CategoryManager({
 
     const updated = new Map(results.filter((r) => r.data).map((r) => [r.data!.id, r.data as Category]));
     const next = categories.map((c) =>
-      updated.has(c.id) ? { ...c, ...updated.get(c.id), budget: Number(updated.get(c.id)!.budget) } : c
+      updated.has(c.id) ? { ...c, name: updated.get(c.id)!.name, emoji: updated.get(c.id)!.emoji } : c
     );
     onCategoriesChange(created && "category" in created ? [...next, created.category] : next);
 
     const failed = results.find((r) => r.error);
     if (failed?.error) return setError(friendlyError(failed.error.message, failed.error.code));
     if (created && "error" in created) return setError(created.error);
-    onSaved();
+    onSaved(created ? "Changes saved. Set the new category's amount in Edit budgets." : "Changes saved");
   }
 
   // Returns the fields to insert, or an error message.
   function validateNewCategory() {
     const name = newName.trim();
-    const budget = parseAmount(newBudget);
     if (!name) return "Give the new category a name, e.g. “Transport”.";
-    if (budget === null) return `The budget for “${name}” must be a positive number.`;
     if (categories.length >= MAX_CATEGORIES) return `You can have up to ${MAX_CATEGORIES} categories.`;
     const position = Math.max(-1, ...categories.map((c) => c.position)) + 1;
-    return { name, emoji: shownNewEmoji.trim() || suggestEmoji(name), budget, position };
+    // New categories start at 0 €; the amount is set in "Edit budgets".
+    return { name, emoji: shownNewEmoji.trim() || suggestEmoji(name), budget: 0, position };
   }
 
   // Inserts the new category and clears the bottom row; on failure the row keeps its text.
@@ -116,16 +114,16 @@ export default function CategoryManager({
     const { data, error } = await supabase.from("categories").insert(fields).select(CATEGORY_COLUMNS).single();
     if (error) return { error: friendlyError(error.message, error.code) };
     const category = { ...(data as Category), budget: Number(data.budget) };
-    setDrafts((d) => ({ ...d, [category.id]: { name: category.name, emoji: category.emoji, budget: String(category.budget) } }));
+    setDrafts((d) => ({ ...d, [category.id]: { name: category.name, emoji: category.emoji } }));
     setNewName("");
     setNewEmoji("");
     setNewEmojiTouched(false);
-    setNewBudget("");
     return { category };
   }
 
   async function handleAdd() {
     setError(null);
+    setHint(null);
     const fields = validateNewCategory();
     if (typeof fields === "string") return setError(fields);
 
@@ -135,6 +133,7 @@ export default function CategoryManager({
 
     if ("error" in result) return setError(result.error);
     onCategoriesChange([...categories, result.category]);
+    setHint(`“${result.category.name}” added with a 0 € budget. Set its amount in Edit budgets.`);
   }
 
   async function handleDelete(category: Category) {
@@ -146,13 +145,13 @@ export default function CategoryManager({
   }
 
   return (
-    <form className="card manager" onSubmit={handleSave}>
-      <h2>Your categories</h2>
-      <p className="muted small">Rename them, change the emoji or the monthly budget, add new ones or remove the ones you don&apos;t need.</p>
+    <form id="category-manager" className="card manager" onSubmit={handleSave}>
+      <h2>Manage categories</h2>
+      <p className="muted small">Rename them, change the emoji, add new ones or remove the ones you don&apos;t need.</p>
 
       <ul className="manager-list">
         {categories.map((c) => {
-          const d = drafts[c.id] ?? { name: c.name, emoji: c.emoji, budget: String(c.budget) };
+          const d = drafts[c.id] ?? { name: c.name, emoji: c.emoji };
           return (
             <li key={c.id} className="manager-row">
               <input
@@ -168,16 +167,6 @@ export default function CategoryManager({
                 value={d.name}
                 onChange={(e) => renameDraft(c, e.target.value)}
               />
-              <div className="euro-input budget-input">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  aria-label={`Monthly budget for ${c.name}`}
-                  value={d.budget}
-                  onChange={(e) => updateDraft(c.id, { budget: e.target.value })}
-                />
-                <span aria-hidden="true">€</span>
-              </div>
               <button
                 type="button"
                 className="btn-icon"
@@ -218,21 +207,16 @@ export default function CategoryManager({
               }
             }}
           />
-          <div className="euro-input budget-input">
-            <input
-              type="text"
-              inputMode="decimal"
-              aria-label="Monthly budget for the new category"
-              placeholder="0"
-              value={newBudget}
-              onChange={(e) => setNewBudget(e.target.value)}
-            />
-            <span aria-hidden="true">€</span>
-          </div>
           <button type="button" className="btn btn-ghost add-cat-btn" disabled={busy} onClick={handleAdd}>
             + Add
           </button>
         </div>
+      )}
+
+      {hint && (
+        <p className="hint" role="status">
+          {hint}
+        </p>
       )}
 
       {error && (

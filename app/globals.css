@@ -152,15 +152,29 @@ input, select {
 .add-grid { display: grid; gap: 12px; }
 .add-btn { width: 100%; }
 
+/* Edit budgets / Manage categories buttons: full width, big tap targets */
+.panel-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.panel-btn {
+  min-height: 52px; padding: 8px 10px; white-space: normal; text-align: center; line-height: 1.2;
+  background: var(--surface); color: var(--text); border-color: var(--border); gap: 6px;
+}
+.panel-btn:hover { border-color: var(--primary); }
+.panel-btn.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-hover); }
+.hint { margin: 10px 0 0; font-size: 0.9rem; color: var(--primary-hover); }
+
+/* Budget editor */
+.budget-row { display: grid; grid-template-columns: 1fr 130px; gap: 10px; align-items: center; }
+.budget-row + .budget-row { padding-top: 8px; border-top: 1px solid var(--border); }
+.budget-label { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
+
 /* Category manager */
 .manager h2 { margin-bottom: 2px; }
 .manager-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.manager-row { display: grid; grid-template-columns: 52px 1fr 36px; grid-template-areas: "emoji name del" "emoji budget del"; gap: 6px 8px; align-items: center; }
+.manager-row { display: grid; grid-template-columns: 52px 1fr 44px; grid-template-areas: "emoji name del"; gap: 8px; align-items: center; }
 .manager-row + .manager-row, .manager-list + .new-row { padding-top: 8px; border-top: 1px solid var(--border); }
-.new-row { margin-top: 8px; grid-template-areas: "emoji name name" "emoji budget add"; grid-template-columns: 52px 1fr auto; }
-.emoji-input { grid-area: emoji; text-align: center; font-size: 1.4rem; padding: 4px; height: 52px; }
+.new-row { margin-top: 8px; grid-template-areas: "emoji name add"; grid-template-columns: 52px 1fr auto; }
+.emoji-input { grid-area: emoji; text-align: center; font-size: 1.4rem; padding: 4px; height: 48px; }
 .name-input { grid-area: name; }
-.budget-input { grid-area: budget; }
 .manager-row .btn-icon { grid-area: del; }
 .add-cat-btn { grid-area: add; }
 .btn-icon:disabled { opacity: 0.3; cursor: default; }
@@ -188,8 +202,9 @@ input, select {
   .steps { grid-template-columns: repeat(3, 1fr); }
   .cards { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
   .cat-left { font-size: 1.5rem; }
-  .manager-row { grid-template-columns: 56px 1fr 140px 36px; grid-template-areas: "emoji name budget del"; }
-  .new-row { grid-template-columns: 56px 1fr 140px auto; grid-template-areas: "emoji name budget add"; }
+  .panel-buttons { display: flex; justify-content: flex-start; }
+  .panel-btn { min-height: 44px; padding: 0 16px; }
+  .budget-row { grid-template-columns: 1fr 160px; }
   .add-grid { grid-template-columns: 1fr 130px 180px auto; align-items: end; }
   .add-btn { width: auto; }
 }
