@@ -19,12 +19,14 @@ export default function CategoryManager({
   categories,
   onCategoriesChange,
   onDeleteCategory,
+  onSaved,
   onClose,
 }: {
   supabase: SupabaseClient;
   categories: Category[];
   onCategoriesChange: (next: Category[]) => void;
   onDeleteCategory: (category: Category) => Promise<void>;
+  onSaved: () => void;
   onClose: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
@@ -68,49 +70,71 @@ export default function CategoryManager({
       if (budget === null) return setError(`The budget for “${name}” must be a positive number.`);
       if (name !== c.name || emoji !== c.emoji || budget !== c.budget) changed.push({ id: c.id, name, emoji, budget });
     }
-    if (changed.length === 0) return onClose();
+    // A filled-in new-category row is saved too, so it isn't lost if the user never clicked "+ Add".
+    let newCategory: Omit<Category, "id"> | null = null;
+    if (newName.trim()) {
+      const fields = validateNewCategory();
+      if (typeof fields === "string") return setError(fields);
+      newCategory = fields;
+    }
+    if (changed.length === 0 && !newCategory) return onClose();
 
     setBusy(true);
-    const results = await Promise.all(
-      changed.map(({ id, ...fields }) =>
+    const [created, ...results] = await Promise.all([
+      newCategory ? insertCategory(newCategory) : Promise.resolve(null),
+      ...changed.map(({ id, ...fields }) =>
         supabase.from("categories").update(fields).eq("id", id).select(CATEGORY_COLUMNS).single()
-      )
-    );
+      ),
+    ]);
     setBusy(false);
 
     const updated = new Map(results.filter((r) => r.data).map((r) => [r.data!.id, r.data as Category]));
-    onCategoriesChange(categories.map((c) => (updated.has(c.id) ? { ...c, ...updated.get(c.id), budget: Number(updated.get(c.id)!.budget) } : c)));
+    const next = categories.map((c) =>
+      updated.has(c.id) ? { ...c, ...updated.get(c.id), budget: Number(updated.get(c.id)!.budget) } : c
+    );
+    onCategoriesChange(created && "category" in created ? [...next, created.category] : next);
 
     const failed = results.find((r) => r.error);
     if (failed?.error) return setError(friendlyError(failed.error.message, failed.error.code));
-    onClose();
+    if (created && "error" in created) return setError(created.error);
+    onSaved();
   }
 
-  async function handleAdd() {
-    setError(null);
+  // Returns the fields to insert, or an error message.
+  function validateNewCategory() {
     const name = newName.trim();
     const budget = parseAmount(newBudget);
-    if (!name) return setError("Give the new category a name, e.g. “Transport”.");
-    if (budget === null) return setError("The budget must be a positive number.");
-    if (categories.length >= MAX_CATEGORIES) return setError(`You can have up to ${MAX_CATEGORIES} categories.`);
-
-    setBusy(true);
+    if (!name) return "Give the new category a name, e.g. “Transport”.";
+    if (budget === null) return `The budget for “${name}” must be a positive number.`;
+    if (categories.length >= MAX_CATEGORIES) return `You can have up to ${MAX_CATEGORIES} categories.`;
     const position = Math.max(-1, ...categories.map((c) => c.position)) + 1;
-    const { data, error } = await supabase
-      .from("categories")
-      .insert({ name, emoji: shownNewEmoji.trim() || suggestEmoji(name), budget, position })
-      .select(CATEGORY_COLUMNS)
-      .single();
-    setBusy(false);
+    return { name, emoji: shownNewEmoji.trim() || suggestEmoji(name), budget, position };
+  }
 
-    if (error) return setError(friendlyError(error.message, error.code));
-    const created = { ...(data as Category), budget: Number(data.budget) };
-    onCategoriesChange([...categories, created]);
-    setDrafts((d) => ({ ...d, [created.id]: { name: created.name, emoji: created.emoji, budget: String(created.budget) } }));
+  // Inserts the new category and clears the bottom row; on failure the row keeps its text.
+  async function insertCategory(fields: Omit<Category, "id">): Promise<{ category: Category } | { error: string }> {
+    const { data, error } = await supabase.from("categories").insert(fields).select(CATEGORY_COLUMNS).single();
+    if (error) return { error: friendlyError(error.message, error.code) };
+    const category = { ...(data as Category), budget: Number(data.budget) };
+    setDrafts((d) => ({ ...d, [category.id]: { name: category.name, emoji: category.emoji, budget: String(category.budget) } }));
     setNewName("");
     setNewEmoji("");
     setNewEmojiTouched(false);
     setNewBudget("");
+    return { category };
+  }
+
+  async function handleAdd() {
+    setError(null);
+    const fields = validateNewCategory();
+    if (typeof fields === "string") return setError(fields);
+
+    setBusy(true);
+    const result = await insertCategory(fields);
+    setBusy(false);
+
+    if ("error" in result) return setError(result.error);
+    onCategoriesChange([...categories, result.category]);
   }
 
   async function handleDelete(category: Category) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import CategoryManager from "@/components/CategoryManager";
 import {
@@ -41,6 +41,24 @@ export default function BudgetDashboard() {
   const [amount, setAmount] = useState("0");
   const [saving, setSaving] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+
+  function showNotice(message: string) {
+    setNotice(message);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3000);
+  }
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  // On a phone the Save button is far down; closing the panel would leave the notice off-screen.
+  useEffect(() => {
+    if (notice) noticeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [notice]);
 
   const formCategoryId = selected ?? defaultCategoryId(categories);
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -165,7 +183,14 @@ export default function BudgetDashboard() {
           <p className="muted">{monthName}</p>
         </div>
         {!managing && !loading && (
-          <button type="button" className="btn btn-ghost" onClick={() => setManaging(true)}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setNotice(null);
+              setManaging(true);
+            }}
+          >
             ✏️ Edit categories
           </button>
         )}
@@ -177,9 +202,17 @@ export default function BudgetDashboard() {
           categories={categories}
           onCategoriesChange={setCategories}
           onDeleteCategory={handleDeleteCategory}
+          onSaved={() => {
+            setManaging(false);
+            showNotice("Changes saved");
+          }}
           onClose={() => setManaging(false)}
         />
       )}
+
+      <p ref={noticeRef} className={`notice ${notice ? "visible" : ""}`} role="status" aria-live="polite">
+        {notice && <>✓ {notice}</>}
+      </p>
 
       <section className="cards" aria-label="Categories">
         {categories.map((c) => {
