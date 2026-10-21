@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# secrets
+.env.local
+.env*.local
+.env
+
+# next.js / build
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# misc
+.DS_Store
+.vercel
+npm-debug.log*
