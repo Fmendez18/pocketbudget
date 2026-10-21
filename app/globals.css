@@ -114,22 +114,48 @@ input, select {
 .dashboard { padding-top: 24px; padding-bottom: 48px; display: flex; flex-direction: column; gap: 16px; }
 .dash-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .dash-head p { margin: 0; }
-.cards { display: grid; gap: 12px; }
+/* Two columns even on phones, so several categories don't push the form off-screen. */
+.cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .category-card {
+  --hue: 160;
+  position: relative; overflow: hidden; isolation: isolate;
   text-align: left; font: inherit; color: inherit; cursor: pointer;
-  display: flex; flex-direction: column; gap: 8px; width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 14px;
+  background: linear-gradient(135deg, hsl(var(--hue) 85% 97%), hsl(var(--hue) 70% 90%));
+  border-color: hsl(var(--hue) 45% 82%);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 }
-.category-card:hover { border-color: #b9c7c2; }
-.category-card.selected { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); background: var(--primary-soft); }
-.cat-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
-.cat-left { font-size: 1.5rem; font-weight: 800; }
+.category-card:hover { border-color: hsl(var(--hue) 45% 60%); }
+.category-card:active { transform: scale(0.98); }
+.category-card.selected { border-color: var(--text); box-shadow: 0 0 0 2px var(--text); }
+.cat-watermark {
+  position: absolute; right: -10px; bottom: -18px; z-index: -1;
+  font-size: 5.5rem; line-height: 1; opacity: 0.22; transform: rotate(-12deg);
+  pointer-events: none; user-select: none;
+}
+.cat-title { font-weight: 700; overflow-wrap: anywhere; }
+.cat-left { font-size: 1.3rem; font-weight: 800; }
 .cat-left.over { color: var(--danger); }
+.cat-meta { color: #3d434e; }
+.category-card .bar { display: block; background: rgba(255, 255, 255, 0.7); }
+.category-card .bar-fill { display: block; }
 
 .add-grid { display: grid; gap: 12px; }
 .add-btn { width: 100%; }
 
-.budget-fields { display: grid; gap: 12px; margin-bottom: 12px; }
+/* Category manager */
+.manager h2 { margin-bottom: 2px; }
+.manager-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.manager-row { display: grid; grid-template-columns: 52px 1fr 36px; grid-template-areas: "emoji name del" "emoji budget del"; gap: 6px 8px; align-items: center; }
+.manager-row + .manager-row, .manager-list + .new-row { padding-top: 8px; border-top: 1px solid var(--border); }
+.new-row { margin-top: 8px; grid-template-areas: "emoji name name" "emoji budget add"; grid-template-columns: 52px 1fr auto; }
+.emoji-input { grid-area: emoji; text-align: center; font-size: 1.4rem; padding: 4px; height: 52px; }
+.name-input { grid-area: name; }
+.budget-input { grid-area: budget; }
+.manager-row .btn-icon { grid-area: del; }
+.add-cat-btn { grid-area: add; }
+.btn-icon:disabled { opacity: 0.3; cursor: default; }
+.manager .row-end { margin-top: 12px; }
 .row-end { display: flex; justify-content: flex-end; gap: 8px; }
 
 .list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -139,6 +165,7 @@ input, select {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 8px 10px 14px;
 }
+.expense-emoji { font-size: 1.4rem; flex-shrink: 0; }
 .expense-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .expense-desc { font-weight: 600; overflow-wrap: anywhere; }
 .expense-amount { font-weight: 700; white-space: nowrap; }
@@ -150,8 +177,10 @@ input, select {
   .hero h1 { font-size: 2.6rem; }
   .landing { padding-top: 64px; }
   .steps { grid-template-columns: repeat(3, 1fr); }
-  .cards { grid-template-columns: repeat(3, 1fr); }
-  .budget-fields { grid-template-columns: repeat(3, 1fr); }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .cat-left { font-size: 1.5rem; }
+  .manager-row { grid-template-columns: 56px 1fr 140px 36px; grid-template-areas: "emoji name budget del"; }
+  .new-row { grid-template-columns: 56px 1fr 140px auto; grid-template-areas: "emoji name budget add"; }
   .add-grid { grid-template-columns: 1fr 130px 180px auto; align-items: end; }
   .add-btn { width: auto; }
 }

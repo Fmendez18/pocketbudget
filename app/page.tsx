@@ -7,8 +7,8 @@ export default function LandingPage() {
         <p className="eyebrow">For students living on a monthly allowance</p>
         <h1>Know how much you have left — before the month runs out.</h1>
         <p className="lead">
-          PocketBudget splits your allowance into <strong>Food</strong>, <strong>Going out</strong> and{" "}
-          <strong>Hobbies</strong>. Log what you spend in two seconds and see exactly what&apos;s left in each.
+          PocketBudget splits your allowance into categories — <strong>Food</strong>, <strong>Going out</strong>,{" "}
+          <strong>Hobbies</strong>, or your own. Log what you spend in two seconds and see exactly what&apos;s left in each.
         </p>
         <Link href="/signup" className="btn btn-primary btn-lg">
           Sign up — it&apos;s free
@@ -42,7 +42,7 @@ export default function LandingPage() {
       <section className="steps">
         <div>
           <h2>1. Sign up</h2>
-          <p>Email and password. No setup needed — sensible budgets are ready for you.</p>
+          <p>Email and password. No setup needed — sensible categories and budgets are ready, and you can make your own.</p>
         </div>
         <div>
           <h2>2. Add expenses</h2>

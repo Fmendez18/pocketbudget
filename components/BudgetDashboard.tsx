@@ -2,26 +2,26 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import CategoryManager from "@/components/CategoryManager";
 import {
-  CATEGORIES,
-  DEFAULT_CATEGORY,
-  categoryLabel,
+  DEFAULT_CATEGORIES,
+  categoryHue,
+  defaultCategoryId,
   formatEur,
   parseAmount,
-  type CategoryId,
+  type Category,
 } from "@/lib/categories";
 
 type Expense = {
   id: string;
   description: string;
   amount: number;
-  category: CategoryId;
+  category_id: string;
   created_at: string;
 };
 
-type Budgets = Record<CategoryId, number>;
-
-const DEFAULT_BUDGETS = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.defaultBudget])) as Budgets;
+const CATEGORY_COLUMNS = "id, name, emoji, budget, position";
+const EXPENSE_COLUMNS = "id, description, amount, category_id, created_at";
 
 // Start of the current month in the user's own timezone, so "this month" matches their calendar.
 function startOfMonthIso() {
@@ -31,39 +31,47 @@ function startOfMonthIso() {
 
 export default function BudgetDashboard() {
   const supabase = useMemo(() => createClient(), []);
-  const [budgets, setBudgets] = useState<Budgets>(DEFAULT_BUDGETS);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<CategoryId | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("0");
   const [saving, setSaving] = useState(false);
+  const [managing, setManaging] = useState(false);
 
-  const [editingBudgets, setEditingBudgets] = useState(false);
-  const [budgetDraft, setBudgetDraft] = useState<Record<CategoryId, string>>({ food: "", going_out: "", hobbies: "" });
-  const [savingBudgets, setSavingBudgets] = useState(false);
-
-  const formCategory: CategoryId = selected ?? DEFAULT_CATEGORY;
+  const formCategoryId = selected ?? defaultCategoryId(categories);
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
   useEffect(() => {
+    const fetchCategories = () =>
+      supabase.from("categories").select(CATEGORY_COLUMNS).order("position").order("created_at");
+
     async function load() {
-      const [budgetRes, expenseRes] = await Promise.all([
-        supabase.from("budgets").select("category, amount"),
-        supabase
-          .from("expenses")
-          .select("id, description, amount, category, created_at")
-          .gte("created_at", startOfMonthIso())
-          .order("created_at", { ascending: false }),
-      ]);
-      if (budgetRes.error || expenseRes.error) {
-        setError((budgetRes.error ?? expenseRes.error)!.message);
+      let categoryRes = await fetchCategories();
+      if (!categoryRes.error && categoryRes.data.length === 0) {
+        // First visit: create the default categories. ignoreDuplicates makes this safe if two tabs race.
+        await supabase
+          .from("categories")
+          .upsert(
+            DEFAULT_CATEGORIES.map((c, i) => ({ ...c, position: i })),
+            { onConflict: "user_id,name", ignoreDuplicates: true }
+          );
+        categoryRes = await fetchCategories();
       }
-      if (budgetRes.data) {
-        const next = { ...DEFAULT_BUDGETS };
-        for (const row of budgetRes.data) next[row.category as CategoryId] = Number(row.amount);
-        setBudgets(next);
+      const expenseRes = await supabase
+        .from("expenses")
+        .select(EXPENSE_COLUMNS)
+        .gte("created_at", startOfMonthIso())
+        .order("created_at", { ascending: false });
+
+      if (categoryRes.error || expenseRes.error) {
+        setError((categoryRes.error ?? expenseRes.error)!.message);
+      }
+      if (categoryRes.data) {
+        setCategories(categoryRes.data.map((c) => ({ ...c, budget: Number(c.budget) })) as Category[]);
       }
       if (expenseRes.data) {
         setExpenses(expenseRes.data.map((e) => ({ ...e, amount: Number(e.amount) })) as Expense[]);
@@ -74,12 +82,12 @@ export default function BudgetDashboard() {
   }, [supabase]);
 
   const spentByCategory = useMemo(() => {
-    const totals: Budgets = { food: 0, going_out: 0, hobbies: 0 };
-    for (const e of expenses) totals[e.category] += e.amount;
+    const totals = new Map<string, number>();
+    for (const e of expenses) totals.set(e.category_id, (totals.get(e.category_id) ?? 0) + e.amount);
     return totals;
   }, [expenses]);
 
-  const visibleExpenses = selected ? expenses.filter((e) => e.category === selected) : expenses;
+  const visibleExpenses = selected ? expenses.filter((e) => e.category_id === selected) : expenses;
 
   async function handleAddExpense(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -94,12 +102,16 @@ export default function BudgetDashboard() {
       setError("The amount must be a positive number, e.g. 12.50.");
       return;
     }
+    if (!formCategoryId) {
+      setError("Create a category first.");
+      return;
+    }
 
     setSaving(true);
     const { data, error } = await supabase
       .from("expenses")
-      .insert({ description: text, amount: value, category: formCategory })
-      .select("id, description, amount, category, created_at")
+      .insert({ description: text, amount: value, category_id: formCategoryId })
+      .select(EXPENSE_COLUMNS)
       .single();
     setSaving(false);
 
@@ -112,7 +124,7 @@ export default function BudgetDashboard() {
     setAmount("0");
   }
 
-  async function handleDelete(id: string) {
+  async function handleDeleteExpense(id: string) {
     const previous = expenses;
     setExpenses((prev) => prev.filter((e) => e.id !== id));
     const { error } = await supabase.from("expenses").delete().eq("id", id);
@@ -122,44 +134,28 @@ export default function BudgetDashboard() {
     }
   }
 
-  function startEditingBudgets() {
-    setBudgetDraft({
-      food: String(budgets.food),
-      going_out: String(budgets.going_out),
-      hobbies: String(budgets.hobbies),
-    });
-    setEditingBudgets(true);
-  }
+  // Deleting a category also deletes its expenses (ON DELETE CASCADE), so say how many first.
+  async function handleDeleteCategory(category: Category) {
+    const { count } = await supabase
+      .from("expenses")
+      .select("id", { count: "exact", head: true })
+      .eq("category_id", category.id);
+    const n = count ?? 0;
+    const warning = n > 0 ? `\n\nThis also deletes its ${n} expense${n === 1 ? "" : "s"}.` : "";
+    if (!window.confirm(`Delete the category “${category.name}”?${warning}`)) return;
 
-  async function handleSaveBudgets(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const parsed = {} as Budgets;
-    for (const c of CATEGORIES) {
-      const v = parseAmount(budgetDraft[c.id]);
-      if (v === null) {
-        setError(`Budget for ${c.label} must be a positive number.`);
-        return;
-      }
-      parsed[c.id] = v;
-    }
-
-    setSavingBudgets(true);
-    const { error } = await supabase.from("budgets").upsert(
-      CATEGORIES.map((c) => ({ category: c.id, amount: parsed[c.id], updated_at: new Date().toISOString() })),
-      { onConflict: "user_id,category" }
-    );
-    setSavingBudgets(false);
-
+    const { error } = await supabase.from("categories").delete().eq("id", category.id);
     if (error) {
       setError(error.message);
       return;
     }
-    setBudgets(parsed);
-    setEditingBudgets(false);
+    setCategories((prev) => prev.filter((c) => c.id !== category.id));
+    setExpenses((prev) => prev.filter((e) => e.category_id !== category.id));
+    if (selected === category.id) setSelected(null);
   }
 
   const monthName = new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const selectedCategory = selected ? categoryById.get(selected) : undefined;
 
   return (
     <div className="container dashboard">
@@ -168,83 +164,63 @@ export default function BudgetDashboard() {
           <h1>Your budget</h1>
           <p className="muted">{monthName}</p>
         </div>
-        {!editingBudgets && (
-          <button type="button" className="btn btn-ghost" onClick={startEditingBudgets}>
-            ✏️ Edit budgets
+        {!managing && !loading && (
+          <button type="button" className="btn btn-ghost" onClick={() => setManaging(true)}>
+            ✏️ Edit categories
           </button>
         )}
       </div>
 
-      {editingBudgets && (
-        <form className="card budget-editor" onSubmit={handleSaveBudgets}>
-          <h2>Monthly budgets</h2>
-          <div className="budget-fields">
-            {CATEGORIES.map((c) => (
-              <label key={c.id} className="field">
-                <span>
-                  {c.emoji} {c.label}
-                </span>
-                <div className="euro-input">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={budgetDraft[c.id]}
-                    onChange={(e) => setBudgetDraft((d) => ({ ...d, [c.id]: e.target.value }))}
-                  />
-                  <span aria-hidden="true">€</span>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div className="row-end">
-            <button type="button" className="btn btn-ghost" onClick={() => setEditingBudgets(false)}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={savingBudgets}>
-              {savingBudgets ? "Saving…" : "Save budgets"}
-            </button>
-          </div>
-        </form>
+      {managing && (
+        <CategoryManager
+          supabase={supabase}
+          categories={categories}
+          onCategoriesChange={setCategories}
+          onDeleteCategory={handleDeleteCategory}
+          onClose={() => setManaging(false)}
+        />
       )}
 
       <section className="cards" aria-label="Categories">
-        {CATEGORIES.map((c) => {
-          const budget = budgets[c.id];
-          const spent = spentByCategory[c.id];
-          const left = budget - spent;
-          const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : spent > 0 ? 100 : 0;
+        {categories.map((c) => {
+          const spent = spentByCategory.get(c.id) ?? 0;
+          const left = c.budget - spent;
+          const pct = c.budget > 0 ? Math.min(100, (spent / c.budget) * 100) : spent > 0 ? 100 : 0;
           const isSelected = selected === c.id;
           return (
             <button
               key={c.id}
               type="button"
               className={`card category-card ${isSelected ? "selected" : ""}`}
+              style={{ "--hue": categoryHue(c.name) } as React.CSSProperties}
               aria-pressed={isSelected}
               onClick={() => setSelected(isSelected ? null : c.id)}
             >
-              <div className="cat-title">
-                <span>
-                  {c.emoji} {c.label}
-                </span>
-                <span className="muted small">of {formatEur(budget)}</span>
-              </div>
-              <div className={`cat-left ${left < 0 ? "over" : ""}`}>
+              <span className="cat-watermark" aria-hidden="true">
+                {c.emoji}
+              </span>
+              <span className="cat-title">
+                <span aria-hidden="true">{c.emoji}</span> {c.name}
+              </span>
+              <span className={`cat-left ${left < 0 ? "over" : ""}`}>
                 {formatEur(left)} <span className="small">left</span>
-              </div>
-              <div
+              </span>
+              <span
                 className="bar"
                 role="progressbar"
-                aria-label={`${c.label} spent`}
+                aria-label={`${c.name} spent`}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(pct)}
               >
-                <div
+                <span
                   className={`bar-fill ${left < 0 ? "over" : pct >= 80 ? "warn" : ""}`}
                   style={{ width: `${pct}%` }}
                 />
-              </div>
-              <div className="muted small">Spent {formatEur(spent)} this month</div>
+              </span>
+              <span className="cat-meta small">
+                Spent {formatEur(spent)} of {formatEur(c.budget)}
+              </span>
             </button>
           );
         })}
@@ -279,15 +255,24 @@ export default function BudgetDashboard() {
           </label>
           <label className="field category">
             <span>Category</span>
-            <select value={formCategory} onChange={(e) => setSelected(e.target.value as CategoryId)}>
-              {CATEGORIES.map((c) => (
+            <select
+              value={formCategoryId ?? ""}
+              disabled={loading}
+              onChange={(e) => setSelected(e.target.value)}
+            >
+              {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.label}
+                  {c.emoji} {c.name}
                 </option>
               ))}
             </select>
           </label>
-          <button type="submit" className="btn btn-primary add-btn" disabled={saving} data-testid="core-submit">
+          <button
+            type="submit"
+            className="btn btn-primary add-btn"
+            disabled={saving || loading}
+            data-testid="core-submit"
+          >
             {saving ? "Saving…" : "Add expense"}
           </button>
         </div>
@@ -300,7 +285,7 @@ export default function BudgetDashboard() {
 
       <section className="expenses">
         <div className="list-head">
-          <h2>{selected ? `${categoryLabel(selected)} expenses` : "All expenses this month"}</h2>
+          <h2>{selectedCategory ? `${selectedCategory.emoji} ${selectedCategory.name} expenses` : "All expenses this month"}</h2>
           {selected && (
             <button type="button" className="btn btn-link" onClick={() => setSelected(null)}>
               Show all
@@ -313,26 +298,32 @@ export default function BudgetDashboard() {
           <p className="muted empty">No expenses yet. Add your first one above.</p>
         ) : (
           <ul className="expense-list">
-            {visibleExpenses.map((e) => (
-              <li key={e.id} className="expense" data-testid="core-item">
-                <div className="expense-main">
-                  <span className="expense-desc">{e.description}</span>
-                  <span className="muted small">
-                    {categoryLabel(e.category)} ·{" "}
-                    {new Date(e.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+            {visibleExpenses.map((e) => {
+              const cat = categoryById.get(e.category_id);
+              return (
+                <li key={e.id} className="expense" data-testid="core-item">
+                  <span className="expense-emoji" aria-hidden="true">
+                    {cat?.emoji ?? "💸"}
                   </span>
-                </div>
-                <span className="expense-amount">{formatEur(e.amount)}</span>
-                <button
-                  type="button"
-                  className="btn-icon"
-                  aria-label={`Delete ${e.description}`}
-                  onClick={() => handleDelete(e.id)}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+                  <div className="expense-main">
+                    <span className="expense-desc">{e.description}</span>
+                    <span className="muted small">
+                      {cat?.name ?? "—"} ·{" "}
+                      {new Date(e.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+                  <span className="expense-amount">{formatEur(e.amount)}</span>
+                  <button
+                    type="button"
+                    className="btn-icon"
+                    aria-label={`Delete ${e.description}`}
+                    onClick={() => handleDeleteExpense(e.id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
